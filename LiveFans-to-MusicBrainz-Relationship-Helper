@@ -225,7 +225,7 @@
 
      const closeButton = document.createElement('button');
      closeButton.type = 'button';
-     closeButton.textContent = 'End';
+     closeButton.textContent = 'Close';
 
      Object.assign(closeButton.style, {
        marginTop: '8px',
