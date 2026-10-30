@@ -1,4 +1,4 @@
-# LiveFans to MusicBrainz Event Importer
+# MusicBrainz: LiveFans Event Importer
 
 A collection of Tampermonkey userscripts that helps transfer live event information from [LiveFans.jp](https://www.livefans.jp/) to [MusicBrainz](https://musicbrainz.org/).
 
