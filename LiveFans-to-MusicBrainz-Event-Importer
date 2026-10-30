@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         LiveFans to MusicBrainz Event Importer
+// @name         MusicBrainz: LiveFans Event Importer
 // @namespace    https://www.livefans.jp/
 // @version      0.1.0
 // @description  LiveFansの公演情報をMusicBrainzのイベント作成フォームへ渡す
