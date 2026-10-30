@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LiveFans to MusicBrainz Event Importer
 // @namespace    https://www.livefans.jp/
-// @version      0.6.0
+// @version      0.1.0
 // @description  LiveFansの公演情報をMusicBrainzのイベント作成フォームへ渡す
 // @match        https://www.livefans.jp/events/*
 // @grant        GM_openInTab
@@ -213,8 +213,8 @@ if (data.day) {
     if (data.sourceUrl) {
       params.set(
         'edit-event.edit_note',
-        `LiveFans to MusicBrainz Event Importer:
-        Source: ${data.sourceUrl}`
+        `LiveFans to MusicBrainz Event Importer (https://github.com/yakumo0209/LiveFans-to-MusicBrainz-Event-Importer)
+Source: ${data.sourceUrl}`
       );
     }
 
@@ -266,23 +266,23 @@ if (data.day) {
     panel.appendChild(heading);
 
     const fields = [
-      ['イベント名', data.name],
+      ['イベント名 / Event Name', data.name],
       [
-        '開催日',
+        '開催日 / Date',
         data.year && data.month && data.day
           ? `${data.year}-${data.month}-${data.day}`
           : '(取得できませんでした)'
       ],
       [
-        '開演時刻',
+        '開演時刻 / Time',
         data.time || '(取得できませんでした)'
       ],
       [
-        '会場',
+        '会場 / Venue',
         data.venue || '(取得できませんでした)'
       ],
       [
-        '出演者',
+        '出演者 / Performer',
         data.artists.join(', ') ||
           '(取得できませんでした)'
       ]
