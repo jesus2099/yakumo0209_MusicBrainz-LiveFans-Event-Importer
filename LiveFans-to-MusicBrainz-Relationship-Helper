@@ -1,5 +1,5 @@
 // ==UserScript==
- // @name         LiveFans to MusicBrainz Relationship Helper
+ // @name         MusicBrainz: LiveFans Relationship Helper
  // @namespace    https://musicbrainz.org/
  // @version      0.1.0
  // @description  LiveFansから渡された会場・出演者名でMusicBrainzの関係行を追加する補助スクリプト
