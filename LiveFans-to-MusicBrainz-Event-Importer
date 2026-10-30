@@ -255,7 +255,7 @@ Source: ${data.sourceUrl}`
     });
 
     const heading = document.createElement('div');
-    heading.textContent = 'MusicBrainz イベント登録';
+    heading.textContent = 'Add Event';
 
     Object.assign(heading.style, {
       fontSize: '16px',
@@ -324,7 +324,7 @@ Source: ${data.sourceUrl}`
 
     const openButton = document.createElement('button');
     openButton.type = 'button';
-    openButton.textContent = 'MusicBrainzで開く';
+    openButton.textContent = 'Open in MusicBrainz';
 
     Object.assign(openButton.style, {
       flex: '1',
@@ -345,7 +345,7 @@ Source: ${data.sourceUrl}`
 
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
-    closeButton.textContent = '閉じる';
+    closeButton.textContent = 'Close';
 
     Object.assign(closeButton.style, {
       padding: '9px 10px',
