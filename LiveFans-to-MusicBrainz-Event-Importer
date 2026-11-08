@@ -308,7 +308,7 @@
      if (data.sourceUrl) {
        params.set(
          'edit-event.edit_note',
-         `LiveFans to MusicBrainz Event Importer (https://github.com/yakumo0209/LiveFans-to-MusicBrainz-Event-Importer)\nSource: ${data.sourceUrl}`
+         `LiveFans Event Importer (https://github.com/yakumo0209/LiveFans-to-MusicBrainz-Event-Importer)\nSource: ${data.sourceUrl}`
        );
      }
 
