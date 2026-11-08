@@ -1,379 +1,684 @@
 // ==UserScript==
-// @name         MusicBrainz: LiveFans Event Importer
-// @namespace    https://www.livefans.jp/
-// @version      0.1.0
-// @description  LiveFansの公演情報をMusicBrainzのイベント作成フォームへ渡す
-// @match        https://www.livefans.jp/events/*
-// @grant        GM_openInTab
-// @run-at       document-idle
-// ==/UserScript==
+ // @name         MusicBrainz: LiveFans Event Importer
+ // @namespace    https://www.livefans.jp/
+ // @version      0.2.0
+ // @description  LiveFansの公演情報・ツアー日程をMusicBrainzのイベント作成フォームへ渡す
+ // @match        https://www.livefans.jp/events/*
+ // @match        https://www.livefans.jp/groups/*
+ // @grant        GM_openInTab
+ // @run-at       document-idle
+ // ==/UserScript==
 
-(() => {
-  'use strict';
+ (() => {
+   'use strict';
 
-  const MUSICBRAINZ_EVENT_URL =
-    'https://musicbrainz.org/event/create';
+   const MUSICBRAINZ_EVENT_URL =
+     'https://musicbrainz.org/event/create';
 
-  function getText(element) {
-    return element?.textContent?.replace(/\s+/g, ' ').trim() || '';
-  }
+   const PANEL_ID = 'lfmb-preview-panel';
 
-  // 公演日と開演時刻を取得
-  function getDateAndTime() {
-    const dateElement = document.querySelector('p.date');
-    const text = getText(dateElement) || getText(document.body);
+   // ----------------------------------------
+   // 共通
+   // ----------------------------------------
 
-    const dateMatch = text.match(
-      /(\d{4})[年/.-](\d{1,2})[月/.-](\d{1,2})日?/
-    );
+   function getText(element) {
+     return element?.textContent?.replace(/\s+/g, ' ').trim() || '';
+   }
 
-    const timeMatch = text.match(
-      /(\d{1,2}):(\d{2})\s*開演/
-    );
+   function cleanVenueName(name) {
+     return name
+       .replace(/[＠@]/g, '')
+       .replace(
+         /[\(（]\s*(?:北海道|東京都|大阪府|京都府|.{2,3}県)\s*[\)）]/g,
+         ''
+       )
+       .replace(/\s+/g, ' ')
+       .trim();
+   }
 
-    return {
-      year: dateMatch?.[1] || '',
-      month: dateMatch?.[2] || '',
-      day: dateMatch?.[3] || '',
-      time: timeMatch
-        ? `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`
-        : '',
-      raw: text
-    };
-  }
+   function isEventPage() {
+     return location.pathname.startsWith('/events/');
+   }
 
-  // 公演タイトルを取得
-  function getEventName() {
-    const selectors = [
-      '.head h4.liveName2 a',
-      'h4.liveName2 a',
-      '.liveName2 a',
-      '.head h4.liveName2'
-    ];
+   function isTourPage() {
+     return location.pathname.startsWith('/groups/');
+   }
 
-    for (const selector of selectors) {
-      const name = getText(document.querySelector(selector));
+   function removeExistingPanel() {
+     document.getElementById(PANEL_ID)?.remove();
+   }
 
-      if (
-        name &&
-        !name.includes('ライブ・セットリスト情報サービス') &&
-        !name.includes('＠')
-      ) {
-        return name;
-      }
-    }
+   // ----------------------------------------
+   // 単公演ページ
+   // ----------------------------------------
 
-    return '';
-  }
-// 会場名から不要な記号と都道府県名を削除
-function cleanVenueName(name) {
-  return name
-    .replace(/[＠@]/g, '')
-    .replace(
-      /[\(（]\s*(?:北海道|東京都|大阪府|京都府|.{2,3}県)\s*[\)）]/g,
-      ''
-    )
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-  // 会場名を取得
-  function getVenue() {
-    const selectors = [
-      'a[href*="/venues/"]',
-      '.venue a',
-      '.venue',
-      '.place',
-      '.hall'
-    ];
+   function getDateAndTime() {
+     const dateElement = document.querySelector('p.date');
+     const text = getText(dateElement) || getText(document.body);
 
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      const name = getText(element);
+     const dateMatch = text.match(
+       /(\d{4})[年\/.-]\s*(\d{1,2})[月\/.-]\s*(\d{1,2})日?/
+     );
 
-      if (name && name.length < 150) {
-        return cleanVenueName(name);
-      }
-    }
+     const timeMatch = text.match(
+       /(\d{1,2}):(\d{2})\s*開演/
+     );
 
-    // 公演日時周辺から取得する予備処理
-    const dateElement = document.querySelector('p.date');
+     return {
+       year: dateMatch?.[1] || '',
+       month: dateMatch?.[2] || '',
+       day: dateMatch?.[3] || '',
+       time: timeMatch
+         ? `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`
+         : '',
+       raw: text
+     };
+   }
 
-    if (dateElement?.parentElement) {
-      const parentText = getText(dateElement.parentElement);
-      const dateText = getText(dateElement);
-      const remaining = parentText.replace(dateText, '').trim();
+   function getEventName() {
+     const selectors = [
+       '.head h4.liveName2 a',
+       'h4.liveName2 a',
+       '.liveName2 a',
+       '.head h4.liveName2'
+     ];
 
-      if (remaining && remaining.length < 150) {
-        return cleanVenueName(remaining);
-      }
-    }
+     for (const selector of selectors) {
+       const name = getText(document.querySelector(selector));
 
-    return '';
-  }
+       if (
+         name &&
+         !name.includes('ライブ・セットリスト情報サービス') &&
+         !name.includes('＠')
+       ) {
+         return name;
+       }
+     }
 
-  // 出演アーティストを取得
-  function getArtists() {
-    const artists = [
-        ...document.querySelectorAll('h4.artistName2 a[href*="/artists/"]')
-    ]
-        .map(a => a.textContent.trim())
-        .filter(Boolean);
+     return '';
+   }
 
-    return [...new Set(artists)];
-}function getArtists() {
-    const artists = [
-        ...document.querySelectorAll('h4.artistName2 a[href*="/artists/"]')
-    ]
-        .map(a => a.textContent.trim())
-        .filter(Boolean);
+   function getVenue() {
+     const selectors = [
+       'a[href*="/venues/"]',
+       '.venue a',
+       '.venue',
+       '.place',
+       '.hall'
+     ];
 
-    return [...new Set(artists)];
-}
+     for (const selector of selectors) {
+       const element = document.querySelector(selector);
+       const name = getText(element);
 
-  // 公演情報をまとめる
-  function collectEventData() {
-    const dateTime = getDateAndTime();
+       if (name && name.length < 150) {
+         return cleanVenueName(name);
+       }
+     }
 
-    return {
-      name: getEventName(),
-      year: dateTime.year,
-      month: dateTime.month,
-      day: dateTime.day,
-      time: dateTime.time,
-      venue: getVenue(),
-      artists: getArtists(),
-      sourceUrl: location.href
-    };
-  }
+     const dateElement = document.querySelector('p.date');
 
-  // MusicBrainzのイベント作成URLを作る
-  function buildMusicBrainzUrl(data) {
-    const params = new URLSearchParams();
+     if (dateElement?.parentElement) {
+       const parentText = getText(dateElement.parentElement);
+       const dateText = getText(dateElement);
+       const remaining = parentText.replace(dateText, '').trim();
 
-    if (data.name) {
-      params.set('edit-event.name', data.name);
-    }
+       if (remaining && remaining.length < 150) {
+         return cleanVenueName(remaining);
+       }
+     }
 
-    if (data.year) {
-      params.set(
-        'edit-event.period.begin_date.year',
-        data.year
-      );
-    }
+     return '';
+   }
 
-    if (data.month) {
-      params.set(
-        'edit-event.period.begin_date.month',
-        data.month
-      );
-    }
+   function getArtists() {
+     const artists = [
+       ...document.querySelectorAll(
+         'h4.artistName2 a[href*="/artists/"]'
+       )
+     ]
+       .map(a => getText(a))
+       .filter(Boolean);
 
-    if (data.day) {
-      params.set(
-        'edit-event.period.begin_date.day',
-        data.day
-      );
-    }
-// End dateもBegin dateと同じ日に設定
-if (data.year) {
-  params.set(
-    'edit-event.period.end_date.year',
-    data.year
-  );
+     return [...new Set(artists)];
+   }
+
+   function collectEventData() {
+     const dateTime = getDateAndTime();
+
+     return {
+       name: getEventName(),
+       year: dateTime.year,
+       month: dateTime.month,
+       day: dateTime.day,
+       time: dateTime.time,
+       venue: getVenue(),
+       artists: getArtists(),
+       sourceUrl: location.href
+     };
+   }
+
+   // ----------------------------------------
+   // ツアーページ
+   // ----------------------------------------
+
+   function getTourName() {
+  const element = document.querySelector('h3.liveName');
+  return getText(element);
 }
 
-if (data.month) {
-  params.set(
-    'edit-event.period.end_date.month',
-    data.month
-  );
+   function getTourArtists() {
+     const selectors = [
+       'h4.artistName2 a[href*="/artists/"]',
+       '.artistName2 a[href*="/artists/"]',
+       'a[href*="/artists/"]'
+     ];
+
+     for (const selector of selectors) {
+       const artists = [
+         ...document.querySelectorAll(selector)
+       ]
+         .map(a => getText(a))
+         .filter(Boolean);
+
+       const uniqueArtists = [...new Set(artists)];
+
+       if (uniqueArtists.length > 0) {
+         return uniqueArtists;
+       }
+     }
+
+     return [];
+   }
+
+   function getTourEvents() {
+     const rows = document.querySelectorAll(
+       '.scheduleBlock table tbody tr'
+     );
+
+     const events = [];
+
+     rows.forEach(row => {
+       const cells = row.querySelectorAll('td');
+
+       if (cells.length < 3) {
+         return;
+       }
+
+       const dateLink = cells[0].querySelector(
+         'a[href*="/events/"]'
+       );
+
+       if (!dateLink) {
+         return;
+       }
+
+       const dateText = getText(dateLink);
+       const timeText = getText(cells[1]);
+       const venueText = getText(cells[2]);
+
+       const eventUrl = new URL(
+         dateLink.getAttribute('href'),
+         location.origin
+       ).href;
+
+       const dateMatch = dateText.match(
+         /(\d{4})\/(\d{1,2})\/(\d{1,2})/
+       );
+
+       if (!dateMatch) {
+         console.warn(
+           '[LiveFans → MusicBrainz] 日付を取得できません:',
+           dateText
+         );
+         return;
+       }
+
+       const timeMatch = timeText.match(
+         /(\d{1,2}):(\d{2})/
+       );
+
+       events.push({
+         dateText,
+         year: dateMatch[1],
+         month: dateMatch[2].padStart(2, '0'),
+         day: dateMatch[3].padStart(2, '0'),
+         time: timeMatch
+           ? `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`
+           : '',
+         venue: cleanVenueName(venueText),
+         eventUrl
+       });
+     });
+
+     return events;
+   }
+
+   // ----------------------------------------
+   // MusicBrainz URL
+   // ----------------------------------------
+
+   function buildMusicBrainzUrl(data) {
+     const params = new URLSearchParams();
+
+     if (data.name) {
+       params.set('edit-event.name', data.name);
+     }
+
+     if (data.year) {
+       params.set(
+         'edit-event.period.begin_date.year',
+         data.year
+       );
+
+       params.set(
+         'edit-event.period.end_date.year',
+         data.year
+       );
+     }
+
+     if (data.month) {
+       params.set(
+         'edit-event.period.begin_date.month',
+         data.month
+       );
+
+       params.set(
+         'edit-event.period.end_date.month',
+         data.month
+       );
+     }
+
+     if (data.day) {
+       params.set(
+         'edit-event.period.begin_date.day',
+         data.day
+       );
+
+       params.set(
+         'edit-event.period.end_date.day',
+         data.day
+       );
+     }
+
+     if (data.time) {
+       params.set('edit-event.time', data.time);
+     }
+
+     if (data.sourceUrl) {
+       params.set(
+         'edit-event.edit_note',
+         `LiveFans to MusicBrainz Event Importer (https://github.com/yakumo0209/LiveFans-to-MusicBrainz-Event-Importer)\nSource: ${data.sourceUrl}`
+       );
+     }
+
+     params.set('lfmb_venue', data.venue || '');
+
+     params.set(
+       'lfmb_artists',
+       JSON.stringify(data.artists || [])
+     );
+
+     params.set('lfmb_tour', data.tour || '');
+
+     return `${MUSICBRAINZ_EVENT_URL}?${params.toString()}`;
+   }
+
+   // ----------------------------------------
+   // 共通パネルスタイル
+   // ----------------------------------------
+
+   function createPanel(title) {
+     removeExistingPanel();
+
+     const panel = document.createElement('div');
+     panel.id = PANEL_ID;
+
+     Object.assign(panel.style, {
+       position: 'fixed',
+       right: '20px',
+       bottom: '20px',
+       zIndex: '999999',
+       width: '380px',
+       maxWidth: 'calc(100vw - 40px)',
+       maxHeight: '75vh',
+       overflowY: 'auto',
+       padding: '16px',
+       background: '#fff',
+       color: '#222',
+       border: '1px solid #888',
+       borderRadius: '10px',
+       boxShadow: '0 4px 18px rgba(0,0,0,.25)',
+       fontSize: '14px',
+       lineHeight: '1.5'
+     });
+
+     const heading = document.createElement('div');
+     heading.textContent = title;
+
+     Object.assign(heading.style, {
+       fontSize: '16px',
+       fontWeight: 'bold',
+       marginBottom: '10px'
+     });
+
+     panel.appendChild(heading);
+
+     return panel;
+   }
+
+   function addInfoRow(panel, label, value) {
+     const row = document.createElement('div');
+     row.style.marginBottom = '5px';
+
+     const labelElement = document.createElement('strong');
+     labelElement.textContent = `${label}：`;
+
+     const valueElement = document.createElement('span');
+     valueElement.textContent = value || '(取得できませんでした)';
+     valueElement.style.overflowWrap = 'anywhere';
+
+     row.append(labelElement, valueElement);
+     panel.appendChild(row);
+   }
+
+   function addCloseButton(panel, container) {
+     const closeButton = document.createElement('button');
+     closeButton.type = 'button';
+     closeButton.textContent = 'Close';
+
+     Object.assign(closeButton.style, {
+       padding: '9px 10px',
+       border: '1px solid #aaa',
+       borderRadius: '6px',
+       background: '#f3f3f3',
+       color: '#222',
+       cursor: 'pointer'
+     });
+
+     closeButton.addEventListener('click', () => {
+       panel.remove();
+     });
+
+     container.appendChild(closeButton);
+   }
+
+   // ----------------------------------------
+   // 単公演プレビュー
+   // ----------------------------------------
+
+   function showPreview(data) {
+     const panel = createPanel('Add Event');
+
+     const fields = [
+       ['Event Name', data.name],
+       [
+         'Date',
+         data.year && data.month && data.day
+           ? `${data.year}-${data.month}-${data.day}`
+           : ''
+       ],
+       ['Time', data.time],
+       ['Venue', data.venue],
+       ['Performer', data.artists.join(', ')]
+     ];
+
+     fields.forEach(([label, value]) => {
+       addInfoRow(panel, label, value);
+     });
+
+     const buttonContainer = document.createElement('div');
+
+     Object.assign(buttonContainer.style, {
+       display: 'flex',
+       gap: '8px',
+       marginTop: '12px'
+     });
+
+     const openButton = document.createElement('button');
+     openButton.type = 'button';
+     openButton.textContent = 'Open in MusicBrainz';
+
+     Object.assign(openButton.style, {
+       flex: '1',
+       padding: '9px 10px',
+       border: 'none',
+       borderRadius: '6px',
+       background: '#2867a5',
+       color: '#fff',
+       cursor: 'pointer',
+       fontWeight: 'bold'
+     });
+
+     openButton.addEventListener('click', () => {
+       GM_openInTab(buildMusicBrainzUrl(data), {
+         active: true
+       });
+     });
+
+     buttonContainer.appendChild(openButton);
+     addCloseButton(panel, buttonContainer);
+
+     panel.appendChild(buttonContainer);
+     document.body.appendChild(panel);
+   }
+
+   // ----------------------------------------
+   // ツアー日程プレビュー
+   // ----------------------------------------
+
+   function showTourPreview() {
+     const tourName = getTourName();
+     const artists = getTourArtists();
+     const events = getTourEvents();
+
+     if (events.length === 0) {
+       console.warn(
+         '[LiveFans → MusicBrainz] ツアー日程を取得できませんでした。'
+       );
+       return;
+     }
+
+     const panel = createPanel(
+       'MusicBrainz Event 一括作成'
+     );
+
+     addInfoRow(panel, 'Tour Name', tourName);
+     addInfoRow(panel, 'Performer', artists.join(', '));
+
+     const selectAllLabel = document.createElement('label');
+
+     Object.assign(selectAllLabel.style, {
+       display: 'block',
+       marginTop: '12px',
+       marginBottom: '8px',
+       fontWeight: 'bold'
+     });
+
+     const selectAll = document.createElement('input');
+     selectAll.type = 'checkbox';
+     selectAll.checked = true;
+
+     selectAllLabel.appendChild(selectAll);
+     selectAllLabel.appendChild(
+       document.createTextNode(' Select all')
+     );
+
+     panel.appendChild(selectAllLabel);
+
+     const list = document.createElement('div');
+
+     Object.assign(list.style, {
+       border: '1px solid #ddd',
+       borderRadius: '6px',
+       overflow: 'hidden'
+     });
+
+     events.forEach((event, index) => {
+       const label = document.createElement('label');
+
+       Object.assign(label.style, {
+         display: 'block',
+         padding: '8px',
+         borderBottom: '1px solid #ddd',
+         cursor: 'pointer'
+       });
+
+       const checkbox = document.createElement('input');
+       checkbox.type = 'checkbox';
+       checkbox.checked = true;
+       checkbox.dataset.index = String(index);
+
+       const text = document.createElement('span');
+
+       text.style.marginLeft = '6px';
+       text.textContent =
+         `${event.year}/${event.month}/${event.day}` +
+         ` ${event.time || '時刻不明'}` +
+         ` ${event.venue || '会場不明'}`;
+
+       label.append(checkbox, text);
+       list.appendChild(label);
+     });
+
+     panel.appendChild(list);
+
+     selectAll.addEventListener('change', () => {
+       list.querySelectorAll('input[type="checkbox"]').forEach(
+         checkbox => {
+           checkbox.checked = selectAll.checked;
+         }
+       );
+     });
+
+     list.addEventListener('change', () => {
+       const checkboxes = [
+         ...list.querySelectorAll('input[type="checkbox"]')
+       ];
+
+       selectAll.checked = checkboxes.every(
+         checkbox => checkbox.checked
+       );
+     });
+
+     const buttonContainer = document.createElement('div');
+
+     Object.assign(buttonContainer.style, {
+       display: 'flex',
+       gap: '8px',
+       marginTop: '12px'
+     });
+
+     const openButton = document.createElement('button');
+     openButton.type = 'button';
+     openButton.textContent = 'Open in MusicBrainz';
+
+     Object.assign(openButton.style, {
+       flex: '1',
+       padding: '9px 10px',
+       border: 'none',
+       borderRadius: '6px',
+       background: '#2867a5',
+       color: '#fff',
+       cursor: 'pointer',
+       fontWeight: 'bold'
+     });
+
+     openButton.addEventListener('click', () => {
+       const selectedEvents = events.filter((event, index) => {
+         const checkbox = list.querySelector(
+           `input[data-index="${index}"]`
+         );
+
+         return checkbox?.checked;
+       });
+
+       if (selectedEvents.length === 0) {
+         alert('Select Events');
+         return;
+       }
+
+       let openIndex = 0;
+
+function openNextEvent() {
+  if (openIndex >= selectedEvents.length) {
+    return;
+  }
+
+  const event = selectedEvents[openIndex];
+
+  const data = {
+    name: tourName,
+    tour: tourName,
+    year: event.year,
+    month: event.month,
+    day: event.day,
+    time: event.time,
+    venue: event.venue,
+    artists,
+    sourceUrl: event.eventUrl
+  };
+
+  GM_openInTab(buildMusicBrainzUrl(data), {
+    active: openIndex === 0,
+    insert: true
+  });
+
+  openIndex++;
+
+  if (openIndex < selectedEvents.length) {
+    setTimeout(openNextEvent, 5000);
+  }
 }
 
-if (data.day) {
-  params.set(
-    'edit-event.period.end_date.day',
-    data.day
-  );
-}
-    if (data.time) {
-      params.set('edit-event.time', data.time);
-    }
+openNextEvent();
+     });
 
-    if (data.sourceUrl) {
-      params.set(
-        'edit-event.edit_note',
-        `LiveFans to MusicBrainz Event Importer (https://github.com/yakumo0209/LiveFans-to-MusicBrainz-Event-Importer)
-Source: ${data.sourceUrl}`
-      );
-    }
+     buttonContainer.appendChild(openButton);
+     addCloseButton(panel, buttonContainer);
 
-    // MusicBrainz側の補助スクリプトに渡す情報
-    params.set('lfmb_venue', data.venue || '');
-    params.set(
-      'lfmb_artists',
-      JSON.stringify(data.artists || [])
-    );
+     panel.appendChild(buttonContainer);
+     document.body.appendChild(panel);
 
-    return `${MUSICBRAINZ_EVENT_URL}?${params.toString()}`;
-  }
+     console.log(
+       '[LiveFans → MusicBrainz] 取得したツアー情報:',
+       {
+         tourName,
+         artists,
+         events
+       }
+     );
+   }
 
-  // 情報確認パネルを表示
-  function showPreview(data) {
-    document.getElementById('lfmb-preview-panel')?.remove();
+   // ----------------------------------------
+   // 初期化
+   // ----------------------------------------
 
-    const panel = document.createElement('div');
-    panel.id = 'lfmb-preview-panel';
+   function init() {
+     if (isTourPage()) {
+       showTourPreview();
+       return;
+     }
 
-    Object.assign(panel.style, {
-      position: 'fixed',
-      right: '20px',
-      bottom: '20px',
-      zIndex: '999999',
-      width: '340px',
-      maxWidth: 'calc(100vw - 40px)',
-      maxHeight: '75vh',
-      overflowY: 'auto',
-      padding: '16px',
-      background: '#fff',
-      color: '#222',
-      border: '1px solid #888',
-      borderRadius: '10px',
-      boxShadow: '0 4px 18px rgba(0,0,0,.25)',
-      fontSize: '14px',
-      lineHeight: '1.5'
-    });
+     if (!isEventPage()) {
+       return;
+     }
 
-    const heading = document.createElement('div');
-    heading.textContent = 'Add Event';
+     const data = collectEventData();
 
-    Object.assign(heading.style, {
-      fontSize: '16px',
-      fontWeight: 'bold',
-      marginBottom: '10px'
-    });
+     if (!data.name) {
+       console.warn(
+         '[LiveFans → MusicBrainz] イベント名を取得できませんでした。'
+       );
+     }
 
-    panel.appendChild(heading);
+     showPreview(data);
 
-    const fields = [
-      ['イベント名 / Event Name', data.name],
-      [
-        '開催日 / Date',
-        data.year && data.month && data.day
-          ? `${data.year}-${data.month}-${data.day}`
-          : '(取得できませんでした)'
-      ],
-      [
-        '開演時刻 / Time',
-        data.time || '(取得できませんでした)'
-      ],
-      [
-        '会場 / Venue',
-        data.venue || '(取得できませんでした)'
-      ],
-      [
-        '出演者 / Performer',
-        data.artists.join(', ') ||
-          '(取得できませんでした)'
-      ]
-    ];
+     console.log(
+       '[LiveFans → MusicBrainz] 取得した公演情報:',
+       data
+     );
+   }
 
-    for (const [label, value] of fields) {
-      const row = document.createElement('div');
-      row.style.marginBottom = '5px';
-
-      const labelElement = document.createElement('strong');
-      labelElement.textContent = `${label}：`;
-
-      const valueElement = document.createElement('span');
-      valueElement.textContent =
-        value || '(取得できませんでした)';
-      valueElement.style.overflowWrap = 'anywhere';
-
-      row.append(labelElement, valueElement);
-      panel.appendChild(row);
-    }
-
-    const note = document.createElement('div');
-
-    Object.assign(note.style, {
-      marginTop: '10px',
-      fontSize: '12px',
-      color: '#555'
-    });
-
-    panel.appendChild(note);
-
-    const buttonContainer = document.createElement('div');
-
-    Object.assign(buttonContainer.style, {
-      display: 'flex',
-      gap: '8px',
-      marginTop: '12px'
-    });
-
-    const openButton = document.createElement('button');
-    openButton.type = 'button';
-    openButton.textContent = 'Open in MusicBrainz';
-
-    Object.assign(openButton.style, {
-      flex: '1',
-      padding: '9px 10px',
-      border: 'none',
-      borderRadius: '6px',
-      background: '#2867a5',
-      color: '#fff',
-      cursor: 'pointer',
-      fontWeight: 'bold'
-    });
-
-    openButton.addEventListener('click', () => {
-      GM_openInTab(buildMusicBrainzUrl(data), {
-        active: true
-      });
-    });
-
-    const closeButton = document.createElement('button');
-    closeButton.type = 'button';
-    closeButton.textContent = 'Close';
-
-    Object.assign(closeButton.style, {
-      padding: '9px 10px',
-      border: '1px solid #aaa',
-      borderRadius: '6px',
-      background: '#f3f3f3',
-      color: '#222',
-      cursor: 'pointer'
-    });
-
-    closeButton.addEventListener('click', () => {
-      panel.remove();
-    });
-
-    buttonContainer.append(openButton, closeButton);
-    panel.appendChild(buttonContainer);
-    document.body.appendChild(panel);
-  }
-
-  function init() {
-    if (!location.pathname.startsWith('/events/')) {
-      return;
-    }
-
-    const data = collectEventData();
-
-    if (!data.name) {
-      console.warn(
-        '[LiveFans → MusicBrainz] イベント名を取得できませんでした。'
-      );
-    }
-
-    showPreview(data);
-
-    console.log(
-      '[LiveFans → MusicBrainz] 取得した公演情報:',
-      data
-    );
-  }
-
-  init();
-})();
+   init();
+ })();
